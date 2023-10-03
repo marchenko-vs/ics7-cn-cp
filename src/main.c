@@ -14,18 +14,27 @@
 #define MAX_CONNECTIONS 10
 #define PROCCESS_NUM 3
 
-#define BUFFER_LEN 400000
+#define BUFFER_LEN 1500000
 #define TEMPLATE_LEN 257
 #define REQUEST_LEN 8193
 
 int server_fd;
-char *file_buffer;
+unsigned char *file_buffer;
 char *server_buffer;
 
 char template_error[TEMPLATE_LEN] = "HTTP/1.1 404 Not found\r\nContent-Type: text/html\r\n\r\n<h1>Not found</h1>\r\n";
 char template_image[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<img src=\"data:image/%s;base64,%s\" />";
 char template_js[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<script type=\"text/javascript\">%s</script>";
 char template_css[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<style>%s</style>%s";
+char template_swf[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: application/x-shockwave-flash\r\nContent-Disposition=attachment;\r\n\r\n";
+
+void my_snprintf(char *fmt, const unsigned char *const buffer, const size_t len)
+{
+	size_t i;
+	for (i = 0; i < len; ++i)
+		fmt[i] = buffer[i];
+	fmt[i] = '\0';
+}
 
 void handle_signal(int sig_num)
 {
@@ -50,7 +59,7 @@ int main(void)
 
 	struct sockaddr_in server_address;
 	server_buffer = calloc(BUFFER_LEN, sizeof(char));
-	//file_buffer = calloc(BUFFER_LEN, sizeof(char));
+	file_buffer = calloc(BUFFER_LEN, sizeof(char));
 
 	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 	{
@@ -121,13 +130,15 @@ int main(void)
 		}
 		else
 		{
-			// encode_base64("img/seal.png", file_buffer, BUFFER_LEN);
-			// form_response(server_buffer, BUFFER_LEN, template_image, "png", file_buffer);
-			char css[] = "h1 {color: red;} p {color: blue;} h2 {color: green}\0";
-			char html[] = "<h1>Test page</h1>\r\n<h2>Header 2</h2>\r\n<p>Paragraph</p>\r\n\0";
+			//encode_base64("images/test.swf", file_buffer, BUFFER_LEN);
+			size_t len = copy_from_file("images/test.swf", file_buffer, BUFFER_LEN);
 
-			form_html_css(server_buffer, BUFFER_LEN, template_css, css, html);
-			send(client_fd, server_buffer, strlen(server_buffer), 0);
+			form_swf(server_buffer, BUFFER_LEN, template_swf);
+			puts(server_buffer);
+			size_t header_len = strlen(server_buffer);
+			my_snprintf(server_buffer + strlen(server_buffer), file_buffer, len);
+
+			send(client_fd, server_buffer, len + header_len, 0);
 
 			clear_buffer(client_buffer, REQUEST_LEN);
 		}

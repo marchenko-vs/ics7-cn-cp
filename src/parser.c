@@ -11,6 +11,7 @@ size_t copy_from_file(const char *const filename, unsigned char *buffer, const s
 		return 0;
 
 	size_t len_read = fread(buffer, sizeof(unsigned char), len, f);
+
 	buffer[len_read] = '\0';
 	
 	fclose(f);
@@ -52,4 +53,9 @@ void form_response(char *buffer, const size_t len, char *header, char *extension
 void form_html_css(char *buffer, const size_t len, char *template, char *styles, char *html)
 {
 	snprintf(buffer, len, template, styles, html);
+}
+
+void form_swf(char *buffer, const size_t len, char *template)
+{
+	snprintf(buffer, len, template, NULL);
 }
