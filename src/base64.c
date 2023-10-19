@@ -7,7 +7,7 @@
 
 static char symbols[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-size_t encode_base64(const char *const filename, char *output, const size_t len)
+size_t encode_base64(const char *const filename, unsigned char *output, const size_t len)
 {
     unsigned char *input = calloc(len, sizeof(unsigned char));
 

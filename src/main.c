@@ -9,24 +9,23 @@
 
 #include "parser.h"
 #include "base64.h"
+#include "logger.h"
 
 #define PORT 8080
 #define MAX_CONNECTIONS 10
-#define PROCCESS_NUM 3
+#define PROCCESS_NUM 5
 
-#define BUFFER_LEN 1500000
-#define TEMPLATE_LEN 257
-#define REQUEST_LEN 8193
+#define REQUEST_LEN 8192
+#define HEADER_LEN 1024
+#define HEADER_TEMPLATE_LEN 128
+
+logger_t logger;
 
 int server_fd;
-unsigned char *file_buffer;
-char *server_buffer;
 
-char template_error[TEMPLATE_LEN] = "HTTP/1.1 404 Not found\r\nContent-Type: text/html\r\n\r\n<h1>Not found</h1>\r\n";
-char template_image[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<img src=\"data:image/%s;base64,%s\" />";
-char template_js[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<script type=\"text/javascript\">%s</script>";
-char template_css[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<style>%s</style>%s";
-char template_swf[TEMPLATE_LEN] = "HTTP/1.1 200 OK\r\nContent-Type: application/x-shockwave-flash\r\nContent-Disposition=attachment;\r\n\r\n";
+char response_header[HEADER_TEMPLATE_LEN + 1] = "HTTP/1.1 %s\r\n"
+								                "Content-Type: %s/%s\r\n\r\n";
+char response_buffer[HEADER_LEN + 1] = "";
 
 void my_snprintf(char *fmt, const unsigned char *const buffer, const size_t len)
 {
@@ -38,10 +37,8 @@ void my_snprintf(char *fmt, const unsigned char *const buffer, const size_t len)
 
 void handle_signal(int sig_num)
 {
-	free(file_buffer);
-	free(server_buffer);
-
 	close(server_fd);
+	exit_logger(logger);
 	
 	printf("Server shut down.\n");
 	exit(EXIT_SUCCESS);
@@ -57,9 +54,11 @@ int main(void)
 {
 	signal(SIGINT, handle_signal);
 
+	// logger
+	logger = init_logger("log/log.txt");
+
 	struct sockaddr_in server_address;
-	server_buffer = calloc(BUFFER_LEN, sizeof(char));
-	file_buffer = calloc(BUFFER_LEN, sizeof(char));
+	char byte_buffer[1] = "";
 
 	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 	{
@@ -118,31 +117,91 @@ int main(void)
 			return EXIT_FAILURE;
 		}
 
-		recv(client_fd, client_buffer, REQUEST_LEN, 0);
-		client_buffer[strlen(client_buffer)] = '\0';
-		
-		char filename[128];
-		parse_filename(client_buffer, filename);
+		int len = recv(client_fd, client_buffer, REQUEST_LEN, 0);
+		client_buffer[len] = '\0';
+		log_msg(logger, client_buffer);
 
-		if (access(filename, F_OK) != 0)
+		if (process_request(client_buffer) == 405)
 		{
-			send(client_fd, template_error, strlen(template_error), 0);
+			snprintf(response_buffer, 1025, response_header, 
+				     "405 Method Not Allowed", "", "");
+			send(client_fd, response_buffer, strlen(response_buffer), 0);
 		}
 		else
 		{
-			//encode_base64("images/test.swf", file_buffer, BUFFER_LEN);
-			size_t len = copy_from_file("images/test.swf", file_buffer, BUFFER_LEN);
+			char filename[128];
+			parse_filename(client_buffer, filename);
 
-			form_swf(server_buffer, BUFFER_LEN, template_swf);
-			puts(server_buffer);
-			size_t header_len = strlen(server_buffer);
-			my_snprintf(server_buffer + strlen(server_buffer), file_buffer, len);
+			char extension[4] = "";
+			memcpy(extension, filename + strlen(filename) - 3, 3);
 
-			send(client_fd, server_buffer, len + header_len, 0);
-
-			clear_buffer(client_buffer, REQUEST_LEN);
+			if (access(filename, F_OK) != 0)
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "200 OK", "text", "html");
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+				// send body
+				send_data("home.html", client_fd);
+			}
+			else if (strcmp(extension, ".js") == 0)
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "200 OK", "text", "javascript");
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+				// send body
+				send_data(filename, client_fd);
+			}
+			else if (strcmp(extension, "css") == 0)
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "200 OK", "text", "css");
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+				// send body
+				send_data(filename, client_fd);
+			}
+			else if (strcmp(extension, "ico") == 0)
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "200 OK", "image", "x-icon");
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+				// send body
+				send_data(filename, client_fd);
+			}
+			else if (strcmp(extension, "png") == 0 || strcmp(extension, "jpg") == 0
+				  || strcmp(extension, "jpg") == 0 || strcmp(extension, "peg") == 0
+				  || strcmp(extension, "gif") == 0)
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "200 OK", "image", extension);
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+				// send body
+				send_data(filename, client_fd);
+			}
+			else if (strcmp(extension, "swf") == 0)
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "200 OK", "application", 
+					     "x-shockwave-flash\r\nContent-Disposition=attachment;");
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+				// send body
+				send_data(filename, client_fd);
+			}
+			else
+			{
+				// send header
+				snprintf(response_buffer, 1025, response_header, 
+					     "404 Not Found", "");
+				send(client_fd, response_buffer, strlen(response_buffer), 0);
+			}
 		}
 
+		clear_buffer(client_buffer, REQUEST_LEN);
 		close(client_fd);
 	}
 

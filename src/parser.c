@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/socket.h>
 
 size_t copy_from_file(const char *const filename, unsigned char *buffer, const size_t len)
 {
@@ -18,20 +19,6 @@ size_t copy_from_file(const char *const filename, unsigned char *buffer, const s
 
 	return len_read;
 }
-
-// static size_t copy_to_file(const char *const filename, const char *const buffer, const size_t len)
-// {
-// 	FILE *f = fopen(filename, "wb");
-
-// 	if (!f)
-// 		return 0;
-
-// 	size_t len_written = fwrite(buffer, sizeof(char), len, f);
-	
-// 	fclose(f);
-
-// 	return len_written;
-// }
 
 void parse_filename(const char *const path, char *buffer)
 {
@@ -58,4 +45,24 @@ void form_html_css(char *buffer, const size_t len, char *template, char *styles,
 void form_swf(char *buffer, const size_t len, char *template)
 {
 	snprintf(buffer, len, template, NULL);
+}
+
+void send_data(const char *const filename, const int fd)
+{
+	char buffer[2] = "";
+	FILE *f = fopen(filename, "rb");
+	while (fread(buffer, sizeof(char), 1, f) != 0)
+		send(fd, buffer, 1, 0);
+	fclose(f);
+}
+
+size_t process_request(const char *const request)
+{
+	if (request[0] == 'G' && request[1] == 'E' && request[2] == 'T')
+		return 0;
+	else if (request[0] == 'H' && request[1] == 'E' && request[2] == 'A'
+		  && request[3] == 'D')
+		return 1;
+
+	return 405;
 }
