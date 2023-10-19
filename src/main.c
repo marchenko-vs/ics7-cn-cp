@@ -13,34 +13,26 @@
 
 #define PORT 8080
 #define MAX_CONNECTIONS 10
-#define PROCCESS_NUM 5
+#define PROCCESS_NUM 10
 
 #define REQUEST_LEN 8192
 #define HEADER_LEN 1024
 #define HEADER_TEMPLATE_LEN 128
 
 logger_t logger;
-
 int server_fd;
 
 char response_header[HEADER_TEMPLATE_LEN + 1] = "HTTP/1.1 %s\r\n"
 								                "Content-Type: %s/%s\r\n\r\n";
 char response_buffer[HEADER_LEN + 1] = "";
 
-void my_snprintf(char *fmt, const unsigned char *const buffer, const size_t len)
-{
-	size_t i;
-	for (i = 0; i < len; ++i)
-		fmt[i] = buffer[i];
-	fmt[i] = '\0';
-}
-
 void handle_signal(int sig_num)
 {
+	log_msg(logger, "Info: server shut down.\n");
+
 	close(server_fd);
 	exit_logger(logger);
 	
-	printf("Server shut down.\n");
 	exit(EXIT_SUCCESS);
 }
 
@@ -62,7 +54,7 @@ int main(void)
 
 	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 	{
-		perror("Server socket can't be created.");
+		log_msg(logger, "Error: server socket can't be created.\n");
 		return EXIT_FAILURE;
 	}
 
@@ -76,15 +68,19 @@ int main(void)
 	if (bind(server_fd, (struct sockaddr *)&server_address,
 		sizeof(server_address)) == -1)
 	{
-		perror("Can't bind server socket.");
+		log_msg(logger, "Error: can't bind server socket.\n");
 		return EXIT_FAILURE;
 	}
 
 	if (listen(server_fd, MAX_CONNECTIONS) == -1)
 	{
-		perror("Server can't listen.");
+		log_msg(logger, "Error: server can't listen.\n");
 		return EXIT_FAILURE;
 	}
+
+	fd_set current_sockets, ready_sockets;
+	FD_ZERO(&current_sockets);
+	FD_SET(server_fd, &current_sockets);
 
 	// prefork
 	for (size_t i = 0; i < PROCCESS_NUM; ++i)
@@ -92,117 +88,146 @@ int main(void)
 		pid_t pid = fork();
 
 		if (pid == 0)
-		{
 			break;
-		}
 		else if (pid < 0)
 		{
-			perror("Can't fork.");
+			log_msg(logger, "Error: can't fork.\n");
 			return EXIT_FAILURE;
 		}
 	}
 
 	while (1)
 	{	
-		int client_fd;
-		struct sockaddr_in client_address;
-		socklen_t client_address_len = sizeof(client_address);
-		
-		char client_buffer[REQUEST_LEN];
+		ready_sockets = current_sockets;
 
-		if ((client_fd = accept(server_fd,
-			(struct sockaddr *)&client_address, &client_address_len)) == -1)
+		if (pselect(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL, NULL) == -1)
 		{
-			perror("Server can't accept.");
+			log_msg(logger, "Error: server can't pselect.\n");
 			return EXIT_FAILURE;
 		}
 
-		int len = recv(client_fd, client_buffer, REQUEST_LEN, 0);
-		client_buffer[len] = '\0';
-		log_msg(logger, client_buffer);
-
-		if (process_request(client_buffer) == 405)
+		for (int client_fd = 0; client_fd < FD_SETSIZE; ++client_fd)
 		{
-			snprintf(response_buffer, 1025, response_header, 
-				     "405 Method Not Allowed", "", "");
-			send(client_fd, response_buffer, strlen(response_buffer), 0);
+			if (FD_ISSET(client_fd, &ready_sockets))
+			{
+				if (client_fd == server_fd)
+				{
+					int new_socket;
+					struct sockaddr_in client_address;
+					socklen_t client_address_len = sizeof(client_address);
+
+					if ((new_socket = accept(server_fd,
+						(struct sockaddr *)&client_address, &client_address_len)) == -1)
+					{
+						log_msg(logger, "Error: server can't accept.\n");
+						return EXIT_FAILURE;
+					}
+
+					FD_SET(new_socket, &current_sockets);
+				}
+				else
+				{
+					char client_buffer[REQUEST_LEN];
+					int len = recv(client_fd, client_buffer, REQUEST_LEN, 0);
+					client_buffer[len] = '\0';
+
+					log_msg(logger, client_buffer);
+
+					if (process_request(client_buffer) == 405)
+					{
+						snprintf(response_buffer, 1025, response_header, 
+							     "405 Method Not Allowed", "", "");
+						send(client_fd, response_buffer, strlen(response_buffer), 0);
+					}
+					else
+					{
+						char filename[128];
+						parse_filename(client_buffer, filename);
+
+						char extension[4] = "";
+						memcpy(extension, filename + strlen(filename) - 3, 3);
+
+						if (access(filename, F_OK) != 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "text", "html");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data("home.html", client_fd);
+						}
+						else if (strcmp(extension, "tml") == 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "text", "html");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data(filename, client_fd);
+						}
+						else if (strcmp(extension, ".js") == 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "text", "javascript");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data(filename, client_fd);
+						}
+						else if (strcmp(extension, "css") == 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "text", "css");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data(filename, client_fd);
+						}
+						else if (strcmp(extension, "ico") == 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "image", "x-icon");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data(filename, client_fd);
+						}
+						else if (strcmp(extension, "png") == 0 || strcmp(extension, "jpg") == 0
+							  || strcmp(extension, "jpg") == 0 || strcmp(extension, "peg") == 0
+							  || strcmp(extension, "gif") == 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "image", extension);
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data(filename, client_fd);
+						}
+						else if (strcmp(extension, "swf") == 0)
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "200 OK", "application", 
+								     "x-shockwave-flash\r\nContent-Disposition=attachment;");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+							// send body
+							send_data(filename, client_fd);
+						}
+						else
+						{
+							// send header
+							snprintf(response_buffer, 1025, response_header, 
+								     "404 Not Found", "");
+							send(client_fd, response_buffer, strlen(response_buffer), 0);
+						}
+					}
+
+					clear_buffer(client_buffer, REQUEST_LEN);
+					FD_CLR(client_fd, &current_sockets);
+					close(client_fd);
+				}
+			}
 		}
-		else
-		{
-			char filename[128];
-			parse_filename(client_buffer, filename);
-
-			char extension[4] = "";
-			memcpy(extension, filename + strlen(filename) - 3, 3);
-
-			if (access(filename, F_OK) != 0)
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "200 OK", "text", "html");
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-				// send body
-				send_data("home.html", client_fd);
-			}
-			else if (strcmp(extension, ".js") == 0)
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "200 OK", "text", "javascript");
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-				// send body
-				send_data(filename, client_fd);
-			}
-			else if (strcmp(extension, "css") == 0)
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "200 OK", "text", "css");
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-				// send body
-				send_data(filename, client_fd);
-			}
-			else if (strcmp(extension, "ico") == 0)
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "200 OK", "image", "x-icon");
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-				// send body
-				send_data(filename, client_fd);
-			}
-			else if (strcmp(extension, "png") == 0 || strcmp(extension, "jpg") == 0
-				  || strcmp(extension, "jpg") == 0 || strcmp(extension, "peg") == 0
-				  || strcmp(extension, "gif") == 0)
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "200 OK", "image", extension);
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-				// send body
-				send_data(filename, client_fd);
-			}
-			else if (strcmp(extension, "swf") == 0)
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "200 OK", "application", 
-					     "x-shockwave-flash\r\nContent-Disposition=attachment;");
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-				// send body
-				send_data(filename, client_fd);
-			}
-			else
-			{
-				// send header
-				snprintf(response_buffer, 1025, response_header, 
-					     "404 Not Found", "");
-				send(client_fd, response_buffer, strlen(response_buffer), 0);
-			}
-		}
-
-		clear_buffer(client_buffer, REQUEST_LEN);
-		close(client_fd);
 	}
 
 	return EXIT_SUCCESS;

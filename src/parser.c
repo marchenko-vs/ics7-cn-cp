@@ -49,7 +49,7 @@ void form_swf(char *buffer, const size_t len, char *template)
 
 void send_data(const char *const filename, const int fd)
 {
-	char buffer[2] = "";
+	char buffer[1 + 1] = "";
 	FILE *f = fopen(filename, "rb");
 	while (fread(buffer, sizeof(char), 1, f) != 0)
 		send(fd, buffer, 1, 0);
@@ -62,7 +62,7 @@ size_t process_request(const char *const request)
 		return 0;
 	else if (request[0] == 'H' && request[1] == 'E' && request[2] == 'A'
 		  && request[3] == 'D')
-		return 1;
+	return 1;
 
 	return 405;
 }
