@@ -51,8 +51,12 @@ void send_data(const char *const filename, const int fd)
 {
 	char buffer[1 + 1] = "";
 	FILE *f = fopen(filename, "rb");
-	while (fread(buffer, sizeof(char), 1, f) != 0)
-		send(fd, buffer, 1, 0);
+	size_t len = 0;
+
+	while ((len = fread(buffer, sizeof(char), 1, f)) != 0)
+	{
+		send(fd, buffer, len, 0);
+	}
 	fclose(f);
 }
 

@@ -1,11 +1,28 @@
+body {
+  text-align: center;
+  background-image: url("/images/background.png");
+}
+
+ul {
+  display: inline-block;
+}
+
 h1 {
-  color: red;
+  color: white;
+  font-size: 50px;
+  font-family: "Arial";
+  -webkit-text-stroke: 1px #000000;
 }
 
 h2 {
-  color: green;
+  color: white;
+  font-size: 40px;
+  font-family: "Arial";
+  -webkit-text-stroke: 1px #000000;
 }
 
-p {
-  color: brown;
+ul li a {
+  color: white;
+  font-size: 20px;
+  font-family: "Arial";
 }
