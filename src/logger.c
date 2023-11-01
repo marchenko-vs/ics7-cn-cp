@@ -6,7 +6,7 @@
 
 logger_t init_logger(const char* const filename)
 {
-	return fopen(filename, "a");
+	return fopen(filename, "a+");
 }
 
 void log_msg(const logger_t logger, const char* const msg)

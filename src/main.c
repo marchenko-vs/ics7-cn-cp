@@ -7,12 +7,9 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "parser.h"
-#include "base64.h"
+#include "server.h"
 #include "logger.h"
 
-#define PORT 8080
-#define MAX_CONNECTIONS 10
 #define PROCCESS_NUM 10
 
 #define REQUEST_LEN 8192
@@ -28,7 +25,7 @@ char response_buffer[HEADER_LEN + 1] = "";
 
 void handle_sigint(int sig_num)
 {
-	log_msg(logger, "Info: server shut down.\n");
+	//log_msg(logger, "Info: server shut down.\n");
 
 	close(server_socket);
 	exit_logger(logger);
@@ -38,7 +35,7 @@ void handle_sigint(int sig_num)
 
 void handle_sigpipe(int sig_num)
 {
-	log_msg(logger, "Warning: client socket was closed.\n");
+	//log_msg(logger, "Warning: client socket was closed.\n");
 }
 
 void clear_buffer(char *buffer, const size_t len)
@@ -52,34 +49,13 @@ int main(void)
 	signal(SIGINT, handle_sigint);
 	signal(SIGPIPE, handle_sigpipe);
 
-	// logger
-	logger = init_logger("log/log.txt");
+	logger = init_logger("./log/log.txt");
 
 	struct sockaddr_in server_address;
 
-	if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+	if (init_server(logger, &server_socket, &server_address) != 0)
 	{
-		log_msg(logger, "Error: server socket can't be created.\n");
-		return EXIT_FAILURE;
-	}
-
-	int optval = 1;
-    setsockopt(server_socket, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
-
-	server_address.sin_family = AF_INET;
-	server_address.sin_addr.s_addr = INADDR_ANY;
-	server_address.sin_port = htons(PORT);
-
-	if (bind(server_socket, (struct sockaddr *)&server_address,
-		sizeof(server_address)) == -1)
-	{
-		log_msg(logger, "Error: can't bind server socket.\n");
-		return EXIT_FAILURE;
-	}
-
-	if (listen(server_socket, MAX_CONNECTIONS) == -1)
-	{
-		log_msg(logger, "Error: server can't listen.\n");
+		//log_msg(logger, "Error: server can't be initialized.\n");
 		return EXIT_FAILURE;
 	}
 
@@ -88,7 +64,7 @@ int main(void)
 	FD_ZERO(&current_sockets);
 	FD_SET(server_socket, &current_sockets);
 
-	//prefork
+	// prefork
 	for (size_t i = 0; i < PROCCESS_NUM; ++i)
 	{
 		pid_t pid = fork();
@@ -97,7 +73,7 @@ int main(void)
 			break;
 		else if (pid < 0)
 		{
-			log_msg(logger, "Error: can't fork.\n");
+			//log_msg(logger, "Error: can't fork.\n");
 			return EXIT_FAILURE;
 		}
 	}
@@ -108,7 +84,7 @@ int main(void)
 
 		if (pselect(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL, NULL) == -1)
 		{
-			log_msg(logger, "Error: server can't pselect.\n");
+			//log_msg(logger, "Error: server can't pselect.\n");
 			return EXIT_FAILURE;
 		}
 
@@ -125,7 +101,7 @@ int main(void)
 					if ((new_socket = accept(server_socket,
 						(struct sockaddr *)&client_address, &client_address_len)) == -1)
 					{
-						log_msg(logger, "Error: server can't accept.\n");
+						//log_msg(logger, "Error: server can't accept.\n");
 						return EXIT_FAILURE;
 					}
 
@@ -133,17 +109,22 @@ int main(void)
 				}
 				else
 				{
+					struct sockaddr_in client_address;
+					socklen_t client_address_len = sizeof(client_address);
 					char client_buffer[REQUEST_LEN];
-					int len = recv(client_socket, client_buffer, REQUEST_LEN, 0);
+					ssize_t len = recvfrom(client_socket, client_buffer, REQUEST_LEN, 0, 
+						(struct sockaddr *)&client_address, &client_address_len);
 					client_buffer[len] = '\0';
+					printf("Bytes received: %ld\n", len);
 
-					log_msg(logger, client_buffer);
+					//log_msg(logger, client_buffer);
 
 					if (process_request(client_buffer) == 405)
 					{
 						snprintf(response_buffer, 1025, response_header, 
 							     "405 Method Not Allowed", "", "");
-						send(client_socket, response_buffer, strlen(response_buffer), 0);
+						sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+							(struct sockaddr *)&client_address, client_address_len);
 					}
 					else
 					{
@@ -160,7 +141,8 @@ int main(void)
 								     "200 OK", "text", "html");
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data("home.html", client_socket);
+							size_t len = send_data("home.html", client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, "tml") == 0)
 						{
@@ -169,7 +151,8 @@ int main(void)
 								     "200 OK", "text", "html");
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data(filename, client_socket);
+							size_t len = send_data(filename, client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, ".js") == 0)
 						{
@@ -178,7 +161,8 @@ int main(void)
 								     "200 OK", "text", "javascript");
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data(filename, client_socket);
+							size_t len = send_data(filename, client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, "css") == 0)
 						{
@@ -187,7 +171,8 @@ int main(void)
 								     "200 OK", "text", "css");
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data(filename, client_socket);
+							size_t len = send_data(filename, client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, "ico") == 0)
 						{
@@ -196,7 +181,8 @@ int main(void)
 								     "200 OK", "image", "x-icon");
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data(filename, client_socket);
+							size_t len = send_data(filename, client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, "png") == 0 || strcmp(extension, "jpg") == 0
 							  || strcmp(extension, "jpg") == 0 || strcmp(extension, "peg") == 0
@@ -207,7 +193,8 @@ int main(void)
 								     "200 OK", "image", extension);
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data(filename, client_socket);
+							size_t len = send_data(filename, client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, "swf") == 0)
 						{
@@ -217,7 +204,8 @@ int main(void)
 								     "x-shockwave-flash\r\nContent-Disposition: inline;");
 							send(client_socket, response_buffer, strlen(response_buffer), 0);
 							// send body
-							send_data(filename, client_socket);
+							size_t len = send_data(filename, client_socket);
+							printf("Bytes send: %zu\n", len);
 						}
 						else
 						{
