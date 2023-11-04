@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/types.h>
+#include <errno.h>
 
 #include "logger.h"
 #include "server.h"
@@ -25,16 +26,33 @@ size_t copy_from_file(const char *const filename, unsigned char *buffer, const s
 	return len_read;
 }
 
-void parse_filename(const char *const path, char *buffer)
+ssize_t parse_filename(const char *const path, char *buffer)
 {
-	size_t j = 0;
+	size_t i = 0, len = 0;
 
-	for (size_t i = 5; path[i] != '\n' && path[i] != ' ' && i < strlen(path); ++i)
+	for (i = 0; path[i] != '/'; ++i);
+
+	for (++i; path[i] != '\n' && path[i] != ' ' && i < strlen(path); ++i)
+		buffer[len++] = path[i];
+
+	buffer[len] = '\0';
+
+	return len;
+}
+
+size_t parse_extension(const char *const filename, char *buffer)
+{
+	size_t i = 0, len = 0;
+
+	for (i = strlen(filename) - 1; filename[i] != '.' && i != 0; --i, ++len);
+
+	if (i > 0)
 	{
-		buffer[j++] = path[i];
+		memcpy(buffer, filename + i + 1, len);
+		buffer[len] = '\0';
 	}
 
-	buffer[j] = '\0';
+	return len;
 }
 
 void form_response(char *buffer, const size_t len, char *header, char *extension, char *content)
@@ -54,15 +72,16 @@ void form_swf(char *buffer, const size_t len, char *template)
 
 size_t send_data(const char *const filename, const int fd)
 {
-	char buffer[1 + 1] = "";
+	char buffer[64 + 1] = "";
 	FILE *f = fopen(filename, "rb");
-	size_t len = 0, full_len = 0;
+	ssize_t rlen = 0, wlen = 0, full_len = 0;
 
-	while ((len = fread(buffer, sizeof(char), 1, f)) != 0)
+	while ((wlen != -1) && ((rlen = fread(buffer, sizeof(char), 64, f)) > 0))
 	{
-		send(fd, buffer, len, 0);
-		full_len += len;
+		wlen = send(fd, buffer, rlen, 0);
+		full_len += rlen;
 	}
+
 	fclose(f);
 
 	return full_len;

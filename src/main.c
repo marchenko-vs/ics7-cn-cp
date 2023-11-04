@@ -23,9 +23,13 @@ char response_header[HEADER_TEMPLATE_LEN + 1] = "HTTP/1.1 %s\r\n"
 								                "Content-Type: %s/%s\r\n\r\n";
 char response_buffer[HEADER_LEN + 1] = "";
 
+const char forbidden_header[] = "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\n";
+const char not_found_header[] = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n";
+const char not_allowed_header[] = "HTTP/1.1 405 Method Not Allowed\r\nContent-Type: text/html\r\n\r\n";
+
 void handle_sigint(int sig_num)
 {
-	//log_msg(logger, "Info: server shut down.\n");
+	log_msg(logger, "Info: server shut down.\n");
 
 	close(server_socket);
 	exit_logger(logger);
@@ -35,7 +39,7 @@ void handle_sigint(int sig_num)
 
 void handle_sigpipe(int sig_num)
 {
-	//log_msg(logger, "Warning: client socket was closed.\n");
+	log_msg(logger, "Warning: client socket was closed.\n");
 }
 
 void clear_buffer(char *buffer, const size_t len)
@@ -55,7 +59,7 @@ int main(void)
 
 	if (init_server(logger, &server_socket, &server_address) != 0)
 	{
-		//log_msg(logger, "Error: server can't be initialized.\n");
+		log_msg(logger, "Error: server can't be initialized.\n");
 		return EXIT_FAILURE;
 	}
 
@@ -84,7 +88,7 @@ int main(void)
 
 		if (pselect(FD_SETSIZE, &ready_sockets, NULL, NULL, NULL, NULL) == -1)
 		{
-			//log_msg(logger, "Error: server can't pselect.\n");
+			log_msg(logger, "Error: server can't pselect.\n");
 			return EXIT_FAILURE;
 		}
 
@@ -101,7 +105,7 @@ int main(void)
 					if ((new_socket = accept(server_socket,
 						(struct sockaddr *)&client_address, &client_address_len)) == -1)
 					{
-						//log_msg(logger, "Error: server can't accept.\n");
+						log_msg(logger, "Error: server can't accept.\n");
 						return EXIT_FAILURE;
 					}
 
@@ -117,24 +121,29 @@ int main(void)
 					client_buffer[len] = '\0';
 					printf("Bytes received: %ld\n", len);
 
-					//log_msg(logger, client_buffer);
+					log_msg(logger, client_buffer);
 
 					if (process_request(client_buffer) == 405)
 					{
-						snprintf(response_buffer, 1025, response_header, 
-							     "405 Method Not Allowed", "", "");
-						sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+						sendto(client_socket, not_allowed_header, strlen(not_allowed_header), 0,
 							(struct sockaddr *)&client_address, client_address_len);
 					}
 					else
 					{
+						char extension[5];
 						char filename[128];
-						parse_filename(client_buffer, filename);
+						ssize_t f_len = parse_filename(client_buffer, filename);
 
-						char extension[4] = "";
-						memcpy(extension, filename + strlen(filename) - 3, 3);
+						if (f_len > 0)
+						{
+							parse_extension(filename, extension);
+						}
 
-						if (access(filename, F_OK) != 0)
+						if (f_len == -1)
+						{
+							send(client_socket, forbidden_header, strlen(forbidden_header), 0);
+						}
+						else if (f_len == 0)
 						{
 							// send header
 							snprintf(response_buffer, 1025, response_header, 
@@ -144,7 +153,12 @@ int main(void)
 							size_t len = send_data("home.html", client_socket);
 							printf("Bytes send: %zu\n", len);
 						}
-						else if (strcmp(extension, "tml") == 0)
+						else if (access(filename, F_OK) != 0)
+						{
+							// send header
+							send(client_socket, not_found_header, strlen(not_found_header), 0);
+						}
+						else if (strcmp(extension, "html") == 0)
 						{
 							// send header
 							snprintf(response_buffer, 1025, response_header, 
@@ -154,7 +168,7 @@ int main(void)
 							size_t len = send_data(filename, client_socket);
 							printf("Bytes send: %zu\n", len);
 						}
-						else if (strcmp(extension, ".js") == 0)
+						else if (strcmp(extension, "js") == 0)
 						{
 							// send header
 							snprintf(response_buffer, 1025, response_header, 
@@ -185,7 +199,7 @@ int main(void)
 							printf("Bytes send: %zu\n", len);
 						}
 						else if (strcmp(extension, "png") == 0 || strcmp(extension, "jpg") == 0
-							  || strcmp(extension, "jpg") == 0 || strcmp(extension, "peg") == 0
+							  || strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0
 							  || strcmp(extension, "gif") == 0)
 						{
 							// send header
@@ -210,9 +224,7 @@ int main(void)
 						else
 						{
 							// send header
-							snprintf(response_buffer, 1025, response_header, 
-								     "404 Not Found", "");
-							send(client_socket, response_buffer, strlen(response_buffer), 0);
+							send(client_socket, not_found_header, strlen(not_found_header), 0);
 						}
 					}
 
