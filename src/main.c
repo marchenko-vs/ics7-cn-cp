@@ -100,6 +100,7 @@ int main(void)
 					struct sockaddr_in client_address;
 					socklen_t client_address_len = sizeof(client_address);
 					char request_buffer[REQUEST_LEN];
+
 					ssize_t len = recvfrom(client_socket, request_buffer, REQUEST_LEN, 0, 
 						(struct sockaddr *)&client_address, &client_address_len);
 					request_buffer[len] = '\0';

@@ -15,7 +15,7 @@ char response_header[HEADER_TEMPLATE_LEN + 1] = "HTTP/1.1 %s\r\n"
 char response_buffer[HEADER_LEN + 1] = "";
 
 const char forbidden_header[] = "HTTP/1.1 403 Forbidden\r\nContent-Type: "
-							    "text/html\r\n\r\n";
+							    "text/html\r\n\r\n<h1>403 Forbidden</h1>";
 const char not_found_header[] = "HTTP/1.1 404 Not Found\r\nContent-Type: "
 								"text/html\r\n\r\n<h1>404 Not Found</h1>";
 const char not_allowed_header[] = "HTTP/1.1 405 Method Not Allowed\r\n"
@@ -29,7 +29,12 @@ ssize_t parse_filename(const char *const path, char *buffer)
 	for (i = 0; path[i] != '/'; ++i);
 
 	for (++i; path[i] != '\n' && path[i] != ' ' && i < strlen(path); ++i)
+	{
+		if (path[i - 1] == '/' && path[i] == '/')
+			return -1;
+
 		buffer[len++] = path[i];
+	}
 
 	buffer[len] = '\0';
 
@@ -100,14 +105,23 @@ void handle_request(const size_t method, const int client_socket,
 		ssize_t f_len = parse_filename(request_buffer, filename);
 
 		if (f_len > 0)
-		{
 			parse_extension(filename, extension);
-		}
 
 		if (f_len == -1)
 		{
 			sendto(client_socket, forbidden_header, strlen(forbidden_header), 0,
 				   client_address, client_address_len);
+		}
+		else if (f_len == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "text", "html");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data("home.html", client_socket, 
+					      client_address, 
+					      client_address_len);
 		}
 		else if (access(filename, F_OK) != 0)
 		{
