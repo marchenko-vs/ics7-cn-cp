@@ -10,21 +10,17 @@
 #include "logger.h"
 #include "server.h"
 
-size_t copy_from_file(const char *const filename, unsigned char *buffer, const size_t len)
-{
-	FILE *f = fopen(filename, "rb");
+char response_header[HEADER_TEMPLATE_LEN + 1] = "HTTP/1.1 %s\r\n"
+								                "Content-Type: %s/%s\r\n\r\n";
+char response_buffer[HEADER_LEN + 1] = "";
 
-	if (!f)
-		return 0;
-
-	size_t len_read = fread(buffer, sizeof(unsigned char), len, f);
-
-	buffer[len_read] = '\0';
-	
-	fclose(f);
-
-	return len_read;
-}
+const char forbidden_header[] = "HTTP/1.1 403 Forbidden\r\nContent-Type: "
+							    "text/html\r\n\r\n";
+const char not_found_header[] = "HTTP/1.1 404 Not Found\r\nContent-Type: "
+								"text/html\r\n\r\n<h1>404 Not Found</h1>";
+const char not_allowed_header[] = "HTTP/1.1 405 Method Not Allowed\r\n"
+                                  "Content-Type: text/html\r\n\r\n<h1>405 "
+                                  "Method Not Allowed</h1>";
 
 ssize_t parse_filename(const char *const path, char *buffer)
 {
@@ -55,58 +51,150 @@ size_t parse_extension(const char *const filename, char *buffer)
 	return len;
 }
 
-void form_response(char *buffer, const size_t len, char *header, char *extension, char *content)
-{
-	snprintf(buffer, len, header, extension, content);
-}
-
-void form_html_css(char *buffer, const size_t len, char *template, char *styles, char *html)
-{
-	snprintf(buffer, len, template, styles, html);
-}
-
-void form_swf(char *buffer, const size_t len, char *template)
-{
-	snprintf(buffer, len, template, NULL);
-}
-
-size_t send_data(const char *const filename, const int fd)
+void send_data(const char *const filename, const int fd, const struct sockaddr *to,
+	             socklen_t tolen)
 {
 	char buffer[64 + 1] = "";
 	FILE *f = fopen(filename, "rb");
-	ssize_t rlen = 0, wlen = 0, full_len = 0;
+	ssize_t rlen = 0, wlen = 0;
 
 	while ((wlen != -1) && ((rlen = fread(buffer, sizeof(char), 64, f)) > 0))
 	{
-		wlen = send(fd, buffer, rlen, 0);
-		full_len += rlen;
+		wlen = sendto(fd, buffer, rlen, 0, to, tolen);
 	}
 
 	fclose(f);
-
-	return full_len;
 }
 
-size_t process_request(const char *const request)
+ssize_t handle_method(const char *const request)
 {
 	if (request[0] == 'G' && request[1] == 'E' && request[2] == 'T')
 	{
-		return 0;
+		return GET_METHOD;
 	}
 	else if (request[0] == 'H' && request[1] == 'E' && request[2] == 'A'
 		  && request[3] == 'D')
 	{
-		return 1;
+		return HEAD_METHOD;
 	}
 
-	return 405;
+	return NOT_ALLOWED_METHOD;
+}
+
+void handle_request(const size_t method, const int client_socket,
+                    struct sockaddr *client_address, 
+	                const socklen_t client_address_len, 
+	                const char *request_buffer)
+{
+	if (NOT_ALLOWED_METHOD == method)
+	{
+		sendto(client_socket, not_allowed_header, 
+			   strlen(not_allowed_header), 0,
+			   client_address, 
+			   client_address_len);
+	}
+	else
+	{
+		char extension[5];
+		char filename[128];
+		ssize_t f_len = parse_filename(request_buffer, filename);
+
+		if (f_len > 0)
+		{
+			parse_extension(filename, extension);
+		}
+
+		if (f_len == -1)
+		{
+			sendto(client_socket, forbidden_header, strlen(forbidden_header), 0,
+				   client_address, client_address_len);
+		}
+		else if (access(filename, F_OK) != 0)
+		{
+			sendto(client_socket, not_found_header, strlen(not_found_header), 0,
+				   client_address, client_address_len);
+		}
+		else if (strcmp(extension, "html") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "text", "html");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, 
+					      client_address, 
+					      client_address_len);
+		}
+		else if (strcmp(extension, "js") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "text", "javascript");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, client_address, client_address_len);
+		}
+		else if (strcmp(extension, "css") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "text", "css");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, client_address, client_address_len);
+		}
+		else if (strcmp(extension, "ico") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "image", "x-icon");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0,
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, client_address, client_address_len);
+		}
+		else if (strcmp(extension, "png") == 0 || strcmp(extension, "jpg") == 0
+			  || strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0
+			  || strcmp(extension, "gif") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "image", extension);
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0, 
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, client_address, client_address_len);
+		}
+		else if (strcmp(extension, "swf") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "application", 
+				     "x-shockwave-flash\r\nContent-Disposition: inline;");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0, 
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, client_address, client_address_len);
+		}
+		else if (strcmp(extension, "mp4") == 0)
+		{
+			snprintf(response_buffer, 1025, response_header, 
+				     "200 OK", "video", "mp4");
+			sendto(client_socket, response_buffer, strlen(response_buffer), 0, 
+				   client_address, client_address_len);
+			if (GET_METHOD == method)
+				send_data(filename, client_socket, client_address, client_address_len);
+		}
+		else
+		{
+			sendto(client_socket, not_found_header, strlen(not_found_header), 0,
+				   client_address, client_address_len);
+		}
+	}
 }
 
 int init_server(logger_t logger, int *server_socket, struct sockaddr_in *server_address)
 {
 	if ((*server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 	{
-		//log_msg(logger, "Error: server socket can't be created.\n");
+		log_msg(logger, "Error: server socket can't be created.\n");
 		return -1;
 	}
 
@@ -120,13 +208,13 @@ int init_server(logger_t logger, int *server_socket, struct sockaddr_in *server_
 	if (bind(*server_socket, (struct sockaddr *)server_address,
 		sizeof(*server_address)) == -1)
 	{
-		//log_msg(logger, "Error: can't bind server socket.\n");
+		log_msg(logger, "Error: can't bind server socket.\n");
 		return -2;
 	}
 
 	if (listen(*server_socket, MAX_CONNECTIONS) == -1)
 	{
-		//log_msg(logger, "Error: server can't listen.\n");
+		log_msg(logger, "Error: server can't listen.\n");
 		return -3;
 	}
 

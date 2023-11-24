@@ -1,6 +1,5 @@
 body {
   text-align: center;
-  background-color: red;
 }
 
 ul {
@@ -8,21 +7,17 @@ ul {
 }
 
 h1 {
-  color: white;
   font-size: 50px;
   font-family: "Arial";
-  -webkit-text-stroke: 1px #000000;
 }
 
 h2 {
-  color: white;
   font-size: 40px;
   font-family: "Arial";
-  -webkit-text-stroke: 1px #000000;
 }
 
 ul li a {
-  color: white;
+  color: black;
   font-size: 20px;
-  font-family: "Arial";
+  font-family: "Helvetica";
 }
