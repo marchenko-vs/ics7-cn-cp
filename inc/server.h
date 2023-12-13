@@ -10,7 +10,7 @@
 #define HEAD_METHOD         1
 #define NOT_ALLOWED_METHOD  2
 
-#define PROCCESS_NUM        10
+#define PROCESS_NUM         10
 
 #define REQUEST_LEN         8192
 #define HEADER_LEN          1024
