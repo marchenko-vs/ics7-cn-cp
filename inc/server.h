@@ -4,13 +4,13 @@
 #include "logger.h"
 
 #define PORT                8080
-#define MAX_CONNECTIONS     10
+#define MAX_CONNECTIONS     128
 
 #define GET_METHOD          0
 #define HEAD_METHOD         1
 #define NOT_ALLOWED_METHOD  2
 
-#define PROCCESS_NUM        10
+#define PROCESS_NUM         10
 
 #define REQUEST_LEN         8192
 #define HEADER_LEN          1024
