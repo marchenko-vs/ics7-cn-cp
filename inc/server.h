@@ -4,7 +4,7 @@
 #include "logger.h"
 
 #define PORT                8080
-#define MAX_CONNECTIONS     10
+#define MAX_CONNECTIONS     128
 
 #define GET_METHOD          0
 #define HEAD_METHOD         1

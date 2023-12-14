@@ -13,23 +13,22 @@
 
 logger_t logger;
 int server_sockfd;
-int finish = 0;
 int is_running = 1;
 
 void handle_sigint(int sig_num)
 {
 	is_running = 0;
-	// log_msg(logger, "Info: server shut down.\n");
+	log_msg(logger, "Info: server shut down.\n");
 
 	close(server_sockfd);
 	exit_logger(logger);
 	
-	//exit(EXIT_SUCCESS);
+	exit(EXIT_SUCCESS);
 }
 
 void handle_sigpipe(int sig_num)
 {
-	// log_msg(logger, "Warning: client socket was closed.\n");
+	log_msg(logger, "Warning: client socket was closed.\n");
 }
 
 void clear_buffer(char *buffer, const size_t len)
@@ -43,28 +42,15 @@ int main(void)
 	signal(SIGINT, handle_sigint);
 	signal(SIGPIPE, handle_sigpipe);
 
-	// logger = init_logger("./log/log.txt");
-	// setbuf(logger, NULL);
+	logger = init_logger("./log/log.txt");
+	setbuf(logger, NULL);
 
 	struct sockaddr_in server_address;
 
 	if (init_server(logger, &server_sockfd, &server_address) != 0)
 	{
-		// log_msg(logger, "Error: server can't be initialized.\n");
+		log_msg(logger, "Error: server can't be initialized.\n");
 		return EXIT_FAILURE;
-	}
-
-	for (size_t i = 0; i < PROCESS_NUM; ++i)
-	{
-		pid_t pid = fork();
-
-		if (pid == 0)
-			break;
-		else if (pid == -1)
-		{
-			// log_msg(logger, "Error: can't fork.\n");
-			return EXIT_FAILURE;
-		}
 	}
 
 	fd_set fds, read_fds;
@@ -72,13 +58,28 @@ int main(void)
 	FD_SET(server_sockfd, &fds);
 	int max_sockfd = server_sockfd;
 
+	for (size_t i = 0; i < PROCESS_NUM; ++i)
+	{
+		pid_t pid = fork();
+
+		if (pid == 0)
+		{
+			break;
+		}
+		else if (pid == -1)
+		{
+			log_msg(logger, "Error: can't fork.\n");
+			return EXIT_FAILURE;
+		}
+	}
+
 	while (is_running)
 	{
 		read_fds = fds;
 
 		if (pselect(max_sockfd + 1, &read_fds, NULL, NULL, NULL, NULL) == -1)
 		{
-			// log_msg(logger, "Error: server can't pselect.\n");
+			log_msg(logger, "Error: server can't pselect.\n");
 			return EXIT_FAILURE;
 		}
 
@@ -95,7 +96,7 @@ int main(void)
 					if ((new_sockfd = accept(server_sockfd,
 						(struct sockaddr *)&client_address, &client_address_len)) == -1)
 					{
-						// log_msg(logger, "Error: server can't accept.\n");
+						log_msg(logger, "Error: server can't accept.\n");
 						return EXIT_FAILURE;
 					}
 
@@ -113,7 +114,7 @@ int main(void)
 						(struct sockaddr *)&client_address, &client_address_len);
 
 					request_buffer[len] = '\0';
-					// log_msg(logger, request_buffer);
+					log_msg(logger, request_buffer);
 					size_t method = handle_method(request_buffer);
 
 					handle_request(method, fd, 
